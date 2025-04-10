@@ -49,10 +49,12 @@ $ npm i --save xfloat
 import BigFloat from 'xfloat';
 
 const a = BigFloat(1.5);               // Convert a JS number to a BigFloat.
-const b = BigFloat.fromParts(6n, -2);  // Construct a BigFloat from raw `n` and `e` values. This is also `1.5` (not normalized).
+const b = BigFloat.fromParts(6n, -2);  // Construct a BigFloat from raw `n` and `e` values.
+                                       // This is also `1.5` (not normalized).
 
 const sum = a.add(b);                  // 3F
-const sqrt = sum.sqrt(128);            // 1.7320508075688772F with 128 bits of numeric precision.
+const sqrt = sum.sqrt(128);            // 1.7320508075688772F with 128 bits of numeric
+                                       // precision.
 
 console.log(sqrt.toNumber());          // 1.7320508075688772
 console.log(Math.sqrt(3));             // 1.7320508075688772
