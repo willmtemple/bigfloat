@@ -7,6 +7,9 @@ on:
   release:
     types: [created]
 
+permissions:
+  contents: read  # read access to the repo content is enough for checkout etc.
+
 jobs:
   build:
     runs-on: ubuntu-latest
