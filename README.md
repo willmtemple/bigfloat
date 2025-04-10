@@ -93,7 +93,6 @@ These are accurate to a reasonable default precision and can be generated with a
 
 - **Binary only**: `xfloat` cannot exactly represent decimal fractions like 0.1, just as native JavaScript `number` cannot. This is not going to solve your gripes about how "0.2 + 0.1 isn't exactly 0.3." It's going to be _really really close_ to 0.3, but this is commonly misunderstood to be a problem with IEEE-754 binary floating-point numbers (or worse, of JavaScript numbers specifically), it is a limitation of _any_ finite binary numeric representation.
 - **Slow with very large precisions**: Division and transcendental functions use iterative algorithms on `bigint` and may become slow with high precision values (hundreds or thousands of bits).
-- **No decimal formatting**: Currently, there is no `.toString()` with decimal formatting or support for custom output bases.
 - **Not IEEE-754 compliant**: While behavior is similar, this is not a drop-in IEEE-754 replacement (e.g., no negative zero, no subnormals).
 - **No trigonometry**: These are coming, possibly in a separate module to keep the implementation tiny for users who don't need trig.
 

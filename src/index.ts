@@ -4,7 +4,41 @@
 
 export default BigFloat;
 
-export type AsBigFloat = BigFloat | number | bigint;
+export type AsBigFloat = BigFloat | number | bigint | string;
+
+/**
+ * Supported rounding modes for BigFloat operations.
+ */
+export const RoundingMode = {
+  /**
+   * Round towards the nearest significant bit, with ties rounding to the nearest even
+   * number.
+   *
+   * This is the default behavior and is the rounding behavior prescribed by IEEE-754.
+   */
+  NearestEven: "nearest-even",
+
+  /**
+   * Truncate the significant bits to the specified precision.
+   */
+  Truncate: "truncate",
+
+  /**
+   * Round towards negative infinity.
+   */
+  Floor: "floor",
+
+  /**
+   * Round towards positive infinity.
+   */
+  Ceil: "ceil",
+
+  /**
+   * Rounds towards the nearest significant bit, with ties rounding away from zero.
+   */
+  Away: "away",
+} as const;
+export type RoundingMode = (typeof RoundingMode)[keyof typeof RoundingMode];
 
 /**
  * A binary floating-point number with arbitrary precision.
@@ -113,6 +147,23 @@ export declare class BigFloat {
    * @param scale - The exponent `e` of the number, represented as a number.
    */
   static fromParts(base: bigint, scale: number): BigFloat;
+
+  /**
+   * Parses a BigFloat from a string.
+   */
+  static fromString(
+    s: string,
+    radix?: number,
+    precision?: number,
+    roundingMode?: RoundingMode
+  ): BigFloat;
+
+  /**
+   * Prints this BigFloat as a string.
+   *
+   * @param radix - The radix to use for the string representation. Can be any integer between 2 and 36. Default: 10.
+   */
+  toString(radix?: number): string;
 
   /**
    * Converts this BigFloat to a JavaScript number.
@@ -601,6 +652,8 @@ export function BigFloat(this: BigFloat, n: AsBigFloat = 0): BigFloat {
     target.n = n.n;
     target.e = n.e;
     return Object.seal(target) as BigFloat;
+  } else if (typeof n === "string") {
+    return BigFloat.fromString(n);
   }
 
   if (n === 0) {
@@ -683,6 +736,180 @@ BigFloat.fromParts = function fromParts(base: bigint, scale: number): BigFloat {
   target.n = base;
 
   return Object.seal(target) as BigFloat;
+};
+
+// TODO: maybe `precision` should be a _minimum_ precision instead of an exact precision.
+//       The idea is that it should limit the degree to which cyclic fractions can expand,
+//       but right now it's also limiting the expansion of strings that _actually have_
+//       more information in them.
+BigFloat.fromString = function fromString(
+  input: string,
+  radix?: number,
+  precision: number = 64,
+  roundingMode: RoundingMode = RoundingMode.NearestEven
+): BigFloat {
+  if (typeof input !== "string") throw new TypeError("Input must be a string");
+  const str = input.trim().toLowerCase();
+  if (str === "") throw new Error("Cannot parse empty string");
+
+  let sign = 1n;
+  let rest = str;
+
+  if (rest.startsWith("+")) {
+    rest = rest.slice(1);
+  } else if (rest.startsWith("-")) {
+    sign = -1n;
+    rest = rest.slice(1);
+  }
+
+  let inferredRadix: number | undefined;
+  if (rest.startsWith("0b")) {
+    inferredRadix = 2;
+    rest = rest.slice(2);
+  } else if (rest.startsWith("0o")) {
+    inferredRadix = 8;
+    rest = rest.slice(2);
+  } else if (rest.startsWith("0x")) {
+    inferredRadix = 16;
+    rest = rest.slice(2);
+  } else if (rest.startsWith("0d")) {
+    inferredRadix = 10;
+    rest = rest.slice(2);
+  }
+
+  const effectiveRadix =
+    inferredRadix !== undefined
+      ? inferredRadix
+      : radix !== undefined
+      ? radix
+      : 10;
+
+  if (
+    inferredRadix !== undefined &&
+    radix !== undefined &&
+    inferredRadix !== radix
+  ) {
+    throw new Error(
+      `Radix mismatch: string specifies base ${inferredRadix}, but radix argument was ${radix}`
+    );
+  }
+
+  if (effectiveRadix < 2 || effectiveRadix > 36) {
+    throw new Error(
+      `Invalid radix ${effectiveRadix}. Supported range is 2 through 36.`
+    );
+  }
+
+  // Exponent detection
+  const expMatch = rest.match(/([ep][+-]?\d+)$/);
+  let exponentValue = 0;
+  let hasDecimalExponent = false;
+  if (expMatch) {
+    const expPart = expMatch[0];
+    rest = rest.slice(0, -expPart.length);
+    const expChar = expPart[0];
+    if (expChar === "e" && effectiveRadix === 10) {
+      exponentValue = parseInt(expPart.slice(1), 10);
+      hasDecimalExponent = true;
+    } else if (
+      expChar === "p" &&
+      (effectiveRadix & (effectiveRadix - 1)) === 0
+    ) {
+      exponentValue = parseInt(expPart.slice(1), 10);
+    } else {
+      throw new Error(
+        `Invalid exponent character '${expChar}' for radix ${effectiveRadix}`
+      );
+    }
+  }
+
+  const [intPart = "0", fracPart = ""] = rest.split(".");
+  const integerValue = parseBigIntFromRadix(intPart, effectiveRadix);
+  const fracDigits =
+    fracPart.length > 0 ? parseBigIntFromRadix(fracPart, effectiveRadix) : 0n;
+  const fracScale = BigInt(effectiveRadix) ** BigInt(fracPart.length);
+
+  // Keep full precision in the integer part, and apply rounding only to the fractional part
+  let result: BigFloat;
+  if (fracDigits === 0n) {
+    result = BigFloat.fromParts(sign * integerValue, 0);
+  } else {
+    const scale = 1n << BigInt(precision);
+    const scaledNumerator = fracDigits * scale;
+    const fracQuotient = scaledNumerator / fracScale;
+    const remainder = scaledNumerator % fracScale;
+
+    let adjusted = fracQuotient;
+    const half = fracScale >> 1n;
+
+    switch (roundingMode) {
+      case RoundingMode.NearestEven:
+        if (remainder > half || (remainder === half && (adjusted & 1n) === 1n))
+          adjusted += 1n;
+        break;
+      case RoundingMode.Away:
+        if (remainder * 2n >= fracScale) adjusted += 1n;
+        break;
+      case RoundingMode.Truncate:
+        break;
+      case RoundingMode.Floor:
+        if (sign < 0n && remainder !== 0n) adjusted += 1n;
+        break;
+      case RoundingMode.Ceil:
+        if (sign > 0n && remainder !== 0n) adjusted += 1n;
+        break;
+      default:
+        throw new Error(`Unknown rounding mode: ${roundingMode}`);
+    }
+
+    const fractional = BigFloat.fromParts(adjusted, -precision);
+    const integer = BigFloat.fromParts(integerValue, 0);
+    result = integer.add(fractional);
+    if (sign < 0n) result = result.negate();
+  }
+
+  if (hasDecimalExponent && exponentValue !== 0) {
+    const multiplier = BigFloat.fromParts(
+      10n ** BigInt(Math.abs(exponentValue)),
+      0
+    );
+    result =
+      exponentValue > 0
+        ? result.multiply(multiplier)
+        : result.divide(multiplier, precision);
+  } else if (!hasDecimalExponent && exponentValue !== 0) {
+    result = BigFloat.fromParts(result.n, result.e + exponentValue);
+  }
+
+  return _normalize(result);
+
+  function parseBigIntFromRadix(str: string, radix: number): bigint {
+    if (radix < 2 || radix > 36) {
+      throw new RangeError(`Unsupported radix ${radix}`);
+    }
+
+    let result = 0n;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str[i];
+      let digit: number;
+
+      if (ch >= "0" && ch <= "9") {
+        digit = ch.charCodeAt(0) - 48;
+      } else if (ch >= "a" && ch <= "z") {
+        digit = ch.charCodeAt(0) - 87;
+      } else {
+        throw new SyntaxError(`Invalid character '${ch}' in number`);
+      }
+
+      if (digit >= radix) {
+        throw new SyntaxError(`Digit '${ch}' out of bounds for base ${radix}`);
+      }
+
+      result = result * BigInt(radix) + BigInt(digit);
+    }
+
+    return result;
+  }
 };
 
 BigFloat.prototype.toNumber = function toNumber(this: BigFloat): number {
@@ -786,34 +1013,87 @@ BigFloat.NAN = BigFloat(NaN);
 BigFloat.INFINITY = BigFloat(Infinity);
 BigFloat.NEGATIVE_INFINITY = BigFloat(-Infinity);
 
-BigFloat.prototype.toString = function toString(this: BigFloat): string {
+BigFloat.prototype.toString = function toString(
+  this: BigFloat,
+  radix: number = 10
+): string {
   if (this.isNaN()) return "NaNF";
-  if (!this.isFinite()) return this.e < 0 ? "-InfinityF" : "InfinityF";
+  if (!this.isFinite()) return this.n < 0n ? "-InfinityF" : "InfinityF";
   if (this.isZero()) return "0F";
+  if (radix < 2 || radix > 36) throw new RangeError(`Invalid radix ${radix}`);
 
-  const [sign, abs] = this.n < 0n ? ["-", -this.n] : ["", this.n];
+  const isNegative = this.n < 0n;
+  const absN = isNegative ? -this.n : this.n;
+  const e = this.e;
 
-  const wholePart = abs >> BigInt(-this.e);
-  if (this.e < 0) {
-    let fractionalPart = abs % (1n << BigInt(-this.e));
+  let result = "";
+  let fraction = 0n;
+  let intPart = 0n;
 
-    // IDEA: Get as many bits of the fractional part as will fit in a safeint, convert to a Number, then divide by 2 ^ scale.
-    //       This gives a number between 0 and 1, which we can print as a decimal number 0.<fractionalPart> using toFixed.
-    //       Finally, slice the string to get the fractional string.
-
-    // Adjust for precision, allow up to 48 bits of significant bits in string repr.
-    fractionalPart >>= BigInt(-this.e - 48);
-
-    // Magic number: 281474976710656 = 2^48
-    const fractionalStr = Number(fractionalPart) / 281474976710656;
-    const fractionString = fractionalStr.toString().slice(2); // Remove "0."
-
-    // Print Base 10, then if the fractional part is non-zero, print it after a decimal point.
-
-    return `${sign}${wholePart}.${fractionString}F`;
+  if (e >= 0) {
+    const value = absN << BigInt(e);
+    result = value.toString(radix);
   } else {
-    return `${sign}${wholePart}F`;
+    const shift = BigInt(-e);
+    intPart = absN >> shift;
+    fraction = absN - (intPart << shift);
+    result = intPart.toString(radix);
+
+    if (fraction > 0n) {
+      result += ".";
+      const base = BigInt(radix);
+      const scale = 1n << shift;
+
+      // Estimate number of fractional bits of information
+      const bitPrecision = fraction.toString(2).length;
+      // TODO: The information theory here is getting out of hand. We don't really know how much precision is
+      // in a BigFloat. I'm just clamping this to a minimum of 64 bits so that exact binary fractions with very
+      // low apparent precision don't get truncated hard.
+      const maxDigits = Math.ceil(
+        Math.max(64, bitPrecision) / Math.log2(radix)
+      );
+
+      let digits = "";
+      let frac = fraction;
+
+      for (let i = 0; i < maxDigits; i++) {
+        frac *= base;
+        const digit = frac / scale;
+        frac %= scale;
+        digits += digit.toString(radix);
+        if (frac === 0n) break;
+      }
+
+      // Round the last digit away from zero if there's remainder
+      if (frac !== 0n) {
+        let i = digits.length - 1;
+        let carry = true;
+        const chars = digits.split("");
+        while (i >= 0 && carry) {
+          let val = parseInt(chars[i], radix) + 1;
+          if (val >= radix) {
+            chars[i] = "0";
+            carry = true;
+          } else {
+            chars[i] = val.toString(radix);
+            carry = false;
+          }
+          i--;
+        }
+        if (carry) chars.unshift("1");
+        digits = chars.join("");
+      }
+
+      // Trim trailing zeros from fractional digits
+      digits = digits.replace(/0+$/, "");
+
+      if (digits.length > 0) {
+        result += digits;
+      }
+    }
   }
+
+  return `${isNegative ? "-" : ""}${result}F`;
 };
 
 BigFloat.prototype.normalize = function normalize(this: BigFloat): BigFloat {

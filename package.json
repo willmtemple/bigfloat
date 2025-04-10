@@ -16,6 +16,7 @@
     "dist/index.min.js.map",
     "dist/index.min.d.ts",
     "README.md",
+    "SECURITY.md",
     "LICENSE"
   ],
   "keywords": [

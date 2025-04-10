@@ -248,7 +248,12 @@ function fuzzOnce() {
         const maxPrecision = Math.max(64, Math.ceil(magnitude * 1.2));
         const expA = BigFloat.exp(a, maxPrecision);
         const logExpA = expA.ln(maxPrecision);
-        assertNear(logExpA, a, -50, "ln(exp(a)) ≠ a", { a, expA, logExpA, maxPrecision });
+        assertNear(logExpA, a, -50, "ln(exp(a)) ≠ a", {
+          a,
+          expA,
+          logExpA,
+          maxPrecision,
+        });
       } else {
         const bitlen = a.n === 0n ? 1 : a.n.toString(2).length;
         const shiftlen = Math.abs(a.e);
