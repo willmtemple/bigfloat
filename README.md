@@ -1,5 +1,8 @@
 # `xfloat` - Arbitrary-precision binary floating point for JavaScript
 
+[![npm](https://img.shields.io/npm/v/xfloat)](https://www.npmjs.com/package/xfloat)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **xfloat** is a small (one ES module with ~600 lines of code, ~12KiB minified), dependency-free JavaScript library for representing and computing with arbitrary-precision binary floating-point numbers. It is implemented in pure JavaScript and relies on native `bigint` for base arithmetic, without the use of limb arrays or external number theory libraries.
 
 ## Overview
