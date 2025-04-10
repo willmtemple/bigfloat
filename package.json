@@ -35,6 +35,7 @@
     "build": "npx tsc && npm run build:minify && npm run build:copy-types",
     "build:copy-types": "shx cp dist/src/index.d.ts dist/index.min.d.ts",
     "build:minify": "terser dist/src/index.js --compress --mangle --source-map \"content=dist/src/index.js.map,filename=dist/src/index.min.js.map,url=index.min.js.map\" -o dist/index.min.js",
+    "clean": "shx rm -rf dist",
     "test:fuzz": "tsx test/fuzz.ts"
   },
   "devDependencies": {
