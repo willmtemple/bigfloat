@@ -1,6 +1,10 @@
-const NORMALIZED = Symbol("normalized");
+// BigFloat - JavaScript arbitrary-precision binary floating point
+// Copyright (c) Will Temple
+// SPDX-License-Identifier: MIT
 
-type AsBigFloat = BigFloat | number | bigint;
+export default BigFloat;
+
+export type AsBigFloat = BigFloat | number | bigint;
 
 /**
  * A binary floating-point number with arbitrary precision.
@@ -36,14 +40,14 @@ type AsBigFloat = BigFloat | number | bigint;
  * movable radix point), it can represent any ratio that terminates in binary exactly.
  *
  */
-declare class BigFloat {
+export declare class BigFloat {
   /**
-   * The power of two that this BigFloat is a multiple of.
+   * The power of two (exponent) that this BigFloat is a multiple of.
    */
   readonly e: number;
 
   /**
-   * The base factor of this BigFloat.
+   * The base factor (significand) of this BigFloat.
    */
   readonly n: bigint;
 
@@ -109,6 +113,15 @@ declare class BigFloat {
    * @param scale - The exponent `e` of the number, represented as a number.
    */
   static fromParts(base: bigint, scale: number): BigFloat;
+
+  /**
+   * Converts this BigFloat to a JavaScript number.
+   *
+   * This will return Infinity or -Infinity if the BigFloat is out of range, or NaN if this BigFloat
+   * is a NaN value. Otherwise, it will return the closest JavaScript number (IEEE-754 double) to this
+   * BigFloat.
+   */
+  toNumber(): number;
 
   /**
    * Returns the absolute value of the BigFloat.
@@ -391,7 +404,7 @@ declare class BigFloat {
   static NEGATIVE_INFINITY: BigFloat;
 }
 
-interface BigFloatConstants extends PreciseBigFloatConstants {
+export interface BigFloatConstants extends PreciseBigFloatConstants {
   /**
    * Returns a record of BigFloat constants where analytically computable constants have the specified precision
    * after the radix point.
@@ -526,7 +539,7 @@ interface BigFloatConstants extends PreciseBigFloatConstants {
   FEIGENBAUM_ALPHA: BigFloat;
 }
 
-interface PreciseBigFloatConstants {
+export interface PreciseBigFloatConstants {
   /**
    * A constant representing the square root of 2 (√2), which is approximately equal to 1.41421.
    */
@@ -574,62 +587,65 @@ interface PreciseBigFloatConstants {
   GOLDEN_RATIO: BigFloat;
 }
 
-function BigFloat(this: BigFloat, n?: AsBigFloat): BigFloat;
-function BigFloat(n: AsBigFloat): BigFloat;
-function BigFloat(this: BigFloat, n: AsBigFloat = 0): BigFloat {
+const NORMALIZED = Symbol("normalized");
+const CONVERSION_BUFFER = new ArrayBuffer(8);
+const CONVERSION_VIEW = new DataView(CONVERSION_BUFFER);
+
+export function BigFloat(this: BigFloat, n?: AsBigFloat): BigFloat;
+export function BigFloat(n: AsBigFloat): BigFloat;
+export function BigFloat(this: BigFloat, n: AsBigFloat = 0): BigFloat {
   const target: { -readonly [K in keyof BigFloat]: BigFloat[K] } =
     this instanceof BigFloat ? this : Object.create(BigFloat.prototype);
 
   if (n instanceof BigFloat) {
     target.n = n.n;
     target.e = n.e;
-    return target as BigFloat;
+    return Object.seal(target) as BigFloat;
   }
 
   if (n === 0) {
     target.n = 0n;
     target.e = 0;
-    return target as BigFloat;
+    return Object.seal(target) as BigFloat;
   } else {
     if (Number.isNaN(n)) {
       target.n = 0n;
       target.e = NaN;
-      return target as BigFloat;
+      return Object.seal(target) as BigFloat;
     } else if (n === Infinity) {
       target.n = 0n;
       target.e = Infinity;
-      return target as BigFloat;
+      return Object.seal(target) as BigFloat;
     } else if (n === -Infinity) {
       target.n = 0n;
       target.e = -Infinity;
-      return target as BigFloat;
+      return Object.seal(target) as BigFloat;
     } else if (typeof n === "bigint") {
       target.n = n;
       target.e = 0;
+      return Object.seal(target) as BigFloat;
     } else {
       const { mantissa, exponent } = extractMantissaAndExponent(n);
 
       target.n = BigInt(mantissa);
       target.e = exponent;
+      return Object.seal(target) as BigFloat;
     }
 
     const bf = _normalize(target as BigFloat);
     target.n = bf.n;
     target.e = bf.e;
-    return target as BigFloat;
+    return Object.seal(target) as BigFloat;
   }
 
   function extractMantissaAndExponent(num: number): {
     mantissa: number;
     exponent: number;
   } {
-    const buffer = new ArrayBuffer(8);
-    const view = new DataView(buffer);
+    CONVERSION_VIEW.setFloat64(0, num);
 
-    view.setFloat64(0, num);
-
-    const high = view.getUint32(0); // High 32 bits
-    const low = view.getUint32(4); // Low 32 bits
+    const high = CONVERSION_VIEW.getUint32(0); // High 32 bits
+    const low = CONVERSION_VIEW.getUint32(4); // Low 32 bits
 
     const sign = high >>> 31;
     const exponentBits = (high >>> 20) & 0x7ff;
@@ -660,19 +676,87 @@ function BigFloat(this: BigFloat, n: AsBigFloat = 0): BigFloat {
 BigFloat[NORMALIZED] = new WeakMap<BigFloat, BigFloat>();
 
 BigFloat.fromParts = function fromParts(base: bigint, scale: number): BigFloat {
-  const target: { scale?: number; base?: bigint } = Object.create(
-    BigFloat.prototype
-  );
+  const target: { -readonly [K in keyof BigFloat]: BigFloat[K] } =
+    Object.create(BigFloat.prototype);
 
-  target.scale = scale;
-  target.base = base;
+  target.e = scale;
+  target.n = base;
 
-  return target as BigFloat;
+  return Object.seal(target) as BigFloat;
+};
+
+BigFloat.prototype.toNumber = function toNumber(this: BigFloat): number {
+  if (!this.isFinite()) {
+    if (this.e === Infinity) return Infinity;
+    if (this.e === -Infinity) return -Infinity;
+    return NaN;
+  } else if (this.isZero()) return 0;
+
+  let { n, e } = this;
+
+  const sign = n < 0n ? 1 : 0;
+  n = n < 0n ? -n : n;
+
+  const EXPONENT_BIAS = (1 << 10) - 1;
+
+  // Get bit length of n without using toString
+  function bitLength(x: bigint): number {
+    let bits = 0;
+    while (x !== 0n) {
+      x >>= 1n;
+      bits++;
+    }
+    return bits;
+  }
+
+  const nBits = bitLength(n);
+  let floatExp = e + nBits - 1;
+
+  if (floatExp > 1023) return sign ? -Infinity : Infinity;
+  if (floatExp < -1075) return sign ? -0 : 0;
+
+  let mantissa = n;
+
+  // Shift mantissa to fit into 53 bits
+  const shift = nBits - 53;
+  if (shift > 0) {
+    const extra = (mantissa >> BigInt(shift - 1)) & 0b11n;
+    mantissa = (mantissa >> BigInt(shift)) + (extra === 0b11n ? 1n : 0n);
+    if (mantissa >> 53n) {
+      mantissa >>= 1n;
+      floatExp++;
+    }
+  } else {
+    mantissa <<= BigInt(-shift);
+  }
+
+  // Subnormal case
+  if (floatExp <= -1023) {
+    const subShift = -1022 - floatExp;
+    if (subShift >= 53) {
+      mantissa = 0n;
+    } else {
+      mantissa >>= BigInt(subShift);
+    }
+    floatExp = -1023;
+  }
+
+  const biasedExp = floatExp + EXPONENT_BIAS;
+  const mantissaBits = mantissa & ((1n << 52n) - 1n);
+
+  const hi =
+    (sign << 31) | ((biasedExp & 0x7ff) << 20) | Number(mantissaBits >> 32n);
+  const lo = Number(mantissaBits & 0xffffffffn);
+
+  CONVERSION_VIEW.setUint32(0, lo, true); // little-endian
+  CONVERSION_VIEW.setUint32(4, hi, true); // little-endian
+
+  return CONVERSION_VIEW.getFloat64(0, true);
 };
 
 // TODO: implement all the constants.
 BigFloat.constants = Object.assign(
-  function preciseConstants(precision: number) {
+  function preciseConstants(_precision: number) {
     return BigFloat.constants;
   },
   {
@@ -1057,7 +1141,7 @@ BigFloat.prototype.pow = function pow(
   const log2N = log2BigIntFixed(n1, precision);
   const log2A = log2N + (BigInt(e1) << precision);
 
-  const bFixed = (n2 << precision) * (1n << BigInt(e2));
+  const bFixed = (n2 << precision) >> BigInt(-e2);
 
   const log2Result = (log2A * bFixed) >> precision;
 
@@ -1066,9 +1150,63 @@ BigFloat.prototype.pow = function pow(
   return _normalize(BigFloat.fromParts(resultFixed, -Number(precision)));
 };
 
-// WORKING
+// Experimental
 
-// Generate precomputed constants only once, up to maxPrecision
+function fixedLn2(precision: bigint, terms: bigint = 256n) {
+  const one = 1n << precision;
+  let result = 0n;
+
+  for (let k = 1n; k <= terms; k++) {
+    const denom = k << k; // k * 2^k
+    const term = one / denom;
+    result += term;
+    if (term === 0n) break;
+  }
+
+  return result;
+}
+
+function fixedExp(y: bigint, precision: bigint, terms: bigint = 32n) {
+  let result = 1n << precision; // Start with 1.0 in fixed-point
+  let term = result;
+  for (let i = 1n; i < terms; i++) {
+    term = (term * y) / (i << precision);
+    result += term;
+    if (term === 0n) break; // Converged
+  }
+  return result;
+}
+
+function precomputeExp2Of2NegX(precision: bigint) {
+  const one = 1n << precision;
+  const ln2 = fixedLn2(precision);
+  const table: bigint[] = [];
+
+  for (let x = 1n; x <= precision; x++) {
+    const twoNegX = one >> x; // 2^-x in fixed-point
+    const exponent = (twoNegX * ln2) >> precision; // ln(2) * 2^-x
+    const value = fixedExp(exponent, precision); // exp(ln(2) * 2^-x)
+    table.push(value);
+  }
+
+  return table;
+}
+
+const EXP2_TABLE = Symbol("EXP2_TABLE");
+
+function getPrecomputedExp2Table(precision: bigint): bigint[] {
+  const precomputed = ((BigFloat as any)[EXP2_TABLE] ??= new Map<
+    bigint,
+    bigint[]
+  >());
+
+  let table = precomputed.get(precision);
+  if (!table) {
+    table = precomputeExp2Of2NegX(precision);
+    precomputed.set(precision, table);
+  }
+  return table;
+}
 
 function exp2BigIntFixed(x: bigint, precision: bigint): bigint {
   const intPart = x >> precision;
@@ -1077,11 +1215,7 @@ function exp2BigIntFixed(x: bigint, precision: bigint): bigint {
   const ONE = 1n << precision;
 
   // Precomputed constants: 2^(2^-i) in fixed-point
-  const powersOfTwo: bigint[] = [];
-  for (let i = 1; i <= Number(precision); i++) {
-    const value = Math.pow(2, Math.pow(0.5, i));
-    powersOfTwo.push(BigInt(Math.round(value * Number(ONE))));
-  }
+  const powersOfTwo: bigint[] = getPrecomputedExp2Table(precision);
 
   // Multiply all relevant 2^{2^-i} factors for set bits
   let result = ONE;
@@ -1095,46 +1229,6 @@ function exp2BigIntFixed(x: bigint, precision: bigint): bigint {
   // Shift result by intPart
   return result << intPart;
 }
-
-// const PRECOMPUTED_POWERS = Symbol("PRECOMPUTED_POWERS_EXP2");
-
-// function precomputePowersOfTwo(maxPrecision: number): void {
-//   const one = 1n << BigInt(maxPrecision);
-//   const result: bigint[] = [];
-
-//   for (let i = 1; i <= maxPrecision; i++) {
-//     const power = Math.pow(2, Math.pow(0.5, i));
-//     result.push(BigInt(Math.round(power * Number(one))));
-//   }
-
-//   (BigFloat as any)[PRECOMPUTED_POWERS][maxPrecision] = result;
-// }
-
-// function exp2BigIntFixed(x: bigint, precision: bigint): bigint {
-//   const intPart = x >> precision;
-//   const fracPart = x & ((1n << precision) - 1n);
-
-//   const prec = Number(precision);
-//   const ONE = 1n << precision;
-
-//   const precomputed_powers = ((BigFloat as any)[PRECOMPUTED_POWERS] ??= {});
-
-//   if (!precomputed_powers[prec]) {
-//     precomputePowersOfTwo(prec);
-//   }
-
-//   const powers = precomputed_powers[prec];
-//   let result = ONE;
-
-//   for (let i = 0n; i < precision; i++) {
-//     const bitIndex = precision - 1n - i;
-//     if ((fracPart >> bitIndex) & 1n) {
-//       result = (result * powers[Number(i)]) >> precision;
-//     }
-//   }
-
-//   return result << intPart;
-// }
 
 BigFloat.prototype.log = function log(
   this: BigFloat,
@@ -1168,52 +1262,22 @@ BigFloat.prototype.log2 = function log2(
   this: BigFloat,
   _precision: number = 48
 ): BigFloat {
+  if (!this.isFinite()) {
+    if (this.e === Infinity) return BigFloat.INFINITY;
+    return BigFloat.NAN;
+  } else if (this.isZero()) {
+    return BigFloat.NEGATIVE_INFINITY;
+  }
+
   const precision = BigInt(_precision);
 
   const { n: base, e: scale } = this;
 
-  // Old code -- replaced with log2BigIntFixed.
-  // const intPart = BigInt(iLog2BigInt(base));
-
-  // let frac = base << (precision - intPart);
-  // let result = intPart << precision;
-
-  // for (let i = 0n; i < precision; i++) {
-  //   frac = (frac * frac) >> precision;
-  //   if (frac >= 2n << precision) {
-  //     frac >>= 1n;
-  //     result |= 1n << (precision - 1n - i);
-  //   }
-  // }
   const result = log2BigIntFixed(base, precision);
 
   return _normalize(
     BigFloat.fromParts(result, -Number(precision)).add(BigFloat(scale))
   );
-
-  // function iLog2BigInt(b: bigint): number {
-  //   let low = 0;
-  //   let high = 1;
-
-  //   while (1n << BigInt(high) <= b) {
-  //     low = high;
-  //     high <<= 1;
-  //     if (high > Number.MAX_SAFE_INTEGER) {
-  //       throw new Error("BigFloat exponent overflow");
-  //     }
-  //   }
-
-  //   while (low < high) {
-  //     const mid = Math.floor((low + high) / 2);
-  //     if (1 << mid <= b) {
-  //       low = mid + 1;
-  //     } else {
-  //       high = mid;
-  //     }
-  //   }
-
-  //   return low - 1;
-  // }
 };
 
 /**
@@ -1224,7 +1288,6 @@ BigFloat.prototype.log2 = function log2(
  * @returns - Fixed(bigint, precision bits) log2(b)
  */
 function log2BigIntFixed(b: bigint, precision: bigint): bigint {
-  // This is the integer part of the logarithm value. Should be 3.
   const intPart = iLog2BigInt(b);
 
   let frac = b << (precision - intPart);
@@ -1458,293 +1521,3 @@ BigFloat.prototype.geq = function geq(
 BigFloat.epsilon = function epsilon(scale: number = -64): BigFloat {
   return BigFloat.fromParts(1n, scale);
 };
-
-// #region Testing
-
-BigFloat(-55).subtract(BigFloat.epsilon(-100));
-
-// Ensure that all BigFloat methods are defined on the prototype.
-
-const methods = [
-  "add",
-  "subtract",
-  "multiply",
-  "divide",
-  "sqrt",
-  "log",
-  "log2",
-  "log10",
-  "ln",
-  "isNormalized",
-  "isFinite",
-  "isInteger",
-  "isNaN",
-  "isZero",
-  "abs",
-  "negate",
-  "floor",
-  "trunc",
-  "round",
-  "pow",
-  "ceil",
-  "eq",
-  "lt",
-  "leq",
-  "gt",
-  "geq",
-  "near",
-  "mod",
-  "normalize",
-  "toString",
-  "compare",
-  "compareNear",
-];
-
-for (const method of methods) {
-  if (typeof (BigFloat.prototype as any)[method] !== "function") {
-    throw new Error(`BigFloat.${method} is not defined`);
-  }
-}
-
-function randInt(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function randBigInt(bits = 64): bigint {
-  const parts: number[] = Array.from({ length: Math.ceil(bits / 32) }, () =>
-    randInt(0, 0xffffffff)
-  );
-  return (
-    parts.reduce(
-      (acc, part, i) => acc + (BigInt(part) << BigInt(i * 32)),
-      BigInt(0)
-    ) * (Math.random() < 0.5 ? BigInt(1) : BigInt(-1))
-  );
-}
-
-function randFloat(): number {
-  return (Math.random() - 0.5) * Math.pow(2, randInt(-1000, 1000));
-}
-
-function randBigFloat(): BigFloat {
-  const mode = randInt(0, 6);
-  switch (mode) {
-    case 0:
-      return new BigFloat(NaN);
-    case 1:
-      return new BigFloat(Infinity);
-    case 2:
-      return new BigFloat(-Infinity);
-    case 3:
-      return BigFloat.fromParts(randBigInt(128), randInt(-1024, 1024));
-    case 4:
-      return new BigFloat(randFloat());
-    case 5:
-      return new BigFloat(0);
-    default:
-      return new BigFloat(randBigInt(64));
-  }
-}
-
-function printValues(values: Record<string, BigFloat>) {
-  for (const [key, value] of Object.entries(values)) {
-    console.log(`\t${key}: ${value}`);
-  }
-}
-
-function assertEqualOrBothNaN(
-  a: BigFloat,
-  b: BigFloat,
-  msg?: string,
-  values: Record<string, BigFloat> = {}
-) {
-  if (a.isNaN() && b.isNaN()) return;
-  if (!a.eq(b)) {
-    stats.failed++;
-    console.error(
-      `FAIL: ${msg ?? "Equality assertion failed"}\n  ${a}\n  !=\n  ${b}`
-    );
-    printValues(values);
-    debugger;
-  } else {
-    stats.passed++;
-  }
-}
-
-function assertNear(
-  a: BigFloat,
-  b: BigFloat,
-  epsScale = -64,
-  msg?: string,
-  values: Record<string, BigFloat> = {}
-) {
-  if (a.isNaN() && b.isNaN()) return;
-
-  const epsilon = BigFloat.epsilon(epsScale);
-  if (!a.near(b, epsilon)) {
-    stats.failed++;
-    console.error(
-      `FAIL: ${
-        msg ?? "Near equality failed"
-      }\n  ${a}\n  ~!=\n  ${b} (eps = ${epsScale})`
-    );
-    printValues(values);
-    debugger;
-  } else {
-    stats.passed++;
-  }
-}
-
-const stats = {
-  passed: 0,
-  failed: 0,
-};
-
-function fuzzOnce() {
-  const a = randBigFloat();
-  const b = randBigFloat();
-  const c = randBigFloat();
-
-  try {
-    // Identity: a - a = 0
-    const expect = a.isFinite() ? BigFloat(0) : BigFloat.NAN;
-    assertEqualOrBothNaN(
-      a.subtract(a).normalize(),
-      expect,
-      `a - a != 0 (or NaN)`,
-      { a }
-    );
-
-    // Symmetry: a + b == b + a
-    assertEqualOrBothNaN(a.add(b), b.add(a), "Addition is not commutative", {
-      a,
-      b,
-    });
-
-    // Associativity: (a + b) + c ≈ a + (b + c)
-    assertNear(
-      a.add(b).add(c),
-      a.add(b.add(c)),
-      -64,
-      "Addition is not associative",
-      { a, b, c }
-    );
-
-    // Multiplication commutativity
-    assertEqualOrBothNaN(
-      a.multiply(b),
-      b.multiply(a),
-      "Multiplication is not commutative",
-      {
-        a,
-        b,
-      }
-    );
-
-    // Multiplicative identity
-    assertEqualOrBothNaN(a.multiply(new BigFloat(1)), a, "a * 1 ≠ a", { a });
-
-    // Additive identity
-    assertEqualOrBothNaN(a.add(new BigFloat(0)), a, "a + 0 ≠ a", { a });
-
-    // Division inverse (a / a ≈ 1 unless a is 0/NaN/Inf)
-    if (a.isFinite() && !a.isZero()) {
-      assertNear(a.divide(a), new BigFloat(1), -64, "a / a ≠ 1", { a });
-    }
-
-    // Check NaN propagation
-    const nan = new BigFloat(NaN);
-    const ops = [
-      () => nan.add(b),
-      () => nan.subtract(b),
-      () => nan.multiply(b),
-      () => nan.divide(b),
-      () => nan.eq(b),
-      () => nan.gt(b),
-    ];
-    for (const op of ops) {
-      const result = op();
-      if (
-        result instanceof BigFloat &&
-        !result.isNaN() &&
-        typeof result !== "boolean"
-      ) {
-        console.error("FAIL: NaN propagation failed");
-        console.error(`  operation: ${op}`);
-        console.error(`  result: ${result}`);
-        debugger;
-      }
-    }
-
-    // Check 0 handling: a % a == 0, 0 % a == 0
-    if (a.isFinite() && !a.isZero()) {
-      assertEqualOrBothNaN(a.mod(a), new BigFloat(0), "a % a ≠ 0", { a });
-      assertEqualOrBothNaN(
-        new BigFloat(0).mod(a),
-        new BigFloat(0),
-        "0 % a ≠ 0",
-        { a }
-      );
-    }
-
-    // sqrt(a)^2 ≈ a (only for positive values)
-    if (!a.isNaN() && !a.isZero() && a.gt(new BigFloat(0))) {
-      const interior_precision = (a.n.toString(2).length + Math.abs(a.e)) * 2;
-      const sqrtA = a.sqrt(Math.max(interior_precision, 64));
-      assertNear(sqrtA.multiply(sqrtA), a, -32, "sqrt(a)^2 ≠ a", { a, sqrtA });
-    }
-
-    // log(exp(x)) ≈ x
-    if (
-      a.isFinite() &&
-      !a.isZero() &&
-      a.gt(new BigFloat(-1000)) &&
-      a.lt(new BigFloat(1000))
-    ) {
-      const interior_precision = (a.n.toString(2).length + Math.abs(a.e)) * 2;
-      const precision = Math.max(interior_precision, 64);
-      const expA = BigFloat.exp(a, precision);
-      const logExpA = expA.ln(precision);
-      assertNear(logExpA, a, -64, "ln(exp(a)) ≠ a", { a, expA, logExpA });
-    }
-
-    // Normalization round trip: x.normalize().isNormalized() == true
-    const normalized = a.normalize();
-    if (!normalized.isNormalized()) {
-      console.error("FAIL: normalize() did not produce a normalized value");
-      printValues({ a, normalized });
-      debugger;
-    }
-
-    // Reflexivity: a == a
-    if (!a.eq(a) && !a.isNaN()) {
-      console.error("FAIL: Reflexivity failed — a ≠ a");
-      printValues({ a });
-      debugger;
-    }
-
-    // Anti-symmetry: if a < b then b > a
-    if (a.lt(b) && !b.gt(a)) {
-      console.error(`FAIL: a < b but b !> a\n  a = ${a}\n  b = ${b}`);
-      printValues({ a, b });
-      debugger;
-    }
-  } catch (e) {
-    console.error("CRASH: Exception during fuzzing operation", e);
-  }
-}
-
-function startFuzz(iterations = 10000) {
-  console.log(`Starting BigFloat fuzzing with ${iterations} iterations...`);
-  for (let i = 0; i < iterations; i++) {
-    fuzzOnce();
-    if (i % 1000 === 0) console.log(`Fuzz iteration ${i}...`);
-  }
-
-  console.log(`Passed: ${stats.passed}`);
-  console.log(`Failed: ${stats.failed}`);
-  console.log("Fuzzing complete.");
-}
-
-// Run the fuzzer
-startFuzz();

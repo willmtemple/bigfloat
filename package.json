@@ -1,11 +1,44 @@
 {
-  "name": "bigfloat",
-  "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "name": "xfloat",
+  "description": "Tiny, pure JavaScript arbitrary-precision binary floating point numbers",
+  "version": "0.1.0-alpha.1",
+  "type": "module",
+  "main": "dist/index.min.js",
+  "types": "dist/index.min.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.min.js",
+      "require": "./dist/index.min.js"
+    }
   },
-  "author": "",
+  "files": [
+    "dist/index.min.js",
+    "dist/index.min.js.map",
+    "dist/index.min.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "xfloat",
+    "float",
+    "binary",
+    "arbitrary",
+    "precision",
+    "number",
+    "math"
+  ],
+  "scripts": {
+    "build": "npx tsc && npm run build:minify && npm run build:copy-types",
+    "build:copy-types": "shx cp dist/src/index.d.ts dist/index.min.d.ts",
+    "build:minify": "terser dist/src/index.js --compress --mangle --source-map \"content=dist/src/index.js.map,filename=dist/src/index.min.js.map,url=index.min.js.map\" -o dist/index.min.js",
+    "test:fuzz": "tsx test/fuzz.ts"
+  },
+  "author": "Will Temple (will at wtemple dot net)",
   "license": "MIT",
-  "description": ""
+  "devDependencies": {
+    "shx": "^0.4.0",
+    "terser": "^5.39.0",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3"
+  }
 }
