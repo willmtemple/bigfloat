@@ -1,7 +1,19 @@
 {
   "name": "xfloat",
-  "description": "Tiny, pure JavaScript arbitrary-precision binary floating point numbers",
   "version": "0.1.0-alpha.1",
+  "description": "Tiny, pure JavaScript arbitrary-precision binary floating point numbers",
+  "license": "MIT",
+  "author": "Will Temple (will at wtemple dot net)",
+  "keywords": [
+    "xfloat",
+    "float",
+    "binary",
+    "arbitrary",
+    "precision",
+    "number",
+    "math"
+  ],
+  "homepage": "https://github.com/willmtemple/xfloat",
   "type": "module",
   "main": "dist/index.min.js",
   "types": "dist/index.min.d.ts",
@@ -19,23 +31,12 @@
     "SECURITY.md",
     "LICENSE"
   ],
-  "keywords": [
-    "xfloat",
-    "float",
-    "binary",
-    "arbitrary",
-    "precision",
-    "number",
-    "math"
-  ],
   "scripts": {
     "build": "npx tsc && npm run build:minify && npm run build:copy-types",
     "build:copy-types": "shx cp dist/src/index.d.ts dist/index.min.d.ts",
     "build:minify": "terser dist/src/index.js --compress --mangle --source-map \"content=dist/src/index.js.map,filename=dist/src/index.min.js.map,url=index.min.js.map\" -o dist/index.min.js",
     "test:fuzz": "tsx test/fuzz.ts"
   },
-  "author": "Will Temple (will at wtemple dot net)",
-  "license": "MIT",
   "devDependencies": {
     "shx": "^0.4.0",
     "terser": "^5.39.0",
