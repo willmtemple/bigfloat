@@ -53,9 +53,9 @@ const b = BigFloat.fromParts(6n, -2);  // Construct a BigFloat from raw `n` and 
                                        // This is also `1.5` (not normalized).
 
 const sum = a.add(b);                  // 3F
-const sqrt = sum.sqrt(128);            // 1.7320508075688772F with 128 bits of numeric
-                                       // precision.
+const sqrt = sum.sqrt(128);            // sqrt(3) with 128 bits of numeric precision.
 
+console.log(sqrt.toString());          // 1.732050807568877293527446341505872366943F
 console.log(sqrt.toNumber());          // 1.7320508075688772
 console.log(Math.sqrt(3));             // 1.7320508075688772
 ```
