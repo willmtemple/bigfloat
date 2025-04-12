@@ -41,6 +41,10 @@ Install `xfloat` from NPM:
 
 ```sh
 $ npm i --save xfloat
+
+added 1 package, and audited 2 packages in 871ms
+
+found 0 vulnerabilities
 ```
 
 ### Example

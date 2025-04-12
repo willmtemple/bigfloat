@@ -255,9 +255,12 @@ function fuzzOnce() {
           maxPrecision,
         });
       } else {
-        const bitlen = a.n === 0n ? 1 : a.n.toString(2).length;
-        const shiftlen = Math.abs(a.e);
-        const interior_precision = Math.max(64, 2 * (bitlen + shiftlen));
+        const bitLength = a.n === 0n ? 1 : a.n.toString(2).length;
+        const shiftMagnitude = Math.abs(a.e);
+        const interior_precision = Math.max(
+          64,
+          2 * (bitLength + shiftMagnitude)
+        );
         const precision = Math.min(256, interior_precision);
 
         const expA = BigFloat.exp(a, precision);

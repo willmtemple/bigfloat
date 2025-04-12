@@ -4,6 +4,9 @@
 
 export default BigFloat;
 
+/**
+ * The type of a value that can be converted to a BigFloat.
+ */
 export type AsBigFloat = BigFloat | number | bigint | string;
 
 /**
@@ -38,6 +41,7 @@ export const RoundingMode = {
    */
   Away: "away",
 } as const;
+
 export type RoundingMode = (typeof RoundingMode)[keyof typeof RoundingMode];
 
 /**
@@ -464,7 +468,7 @@ export interface BigFloatConstants extends PreciseBigFloatConstants {
 
   /**
    * A constant representing the ratio of a circle's circumference to its diameter (π), which is approximately
-   * equal to 3.14159 that arises in various geometric and trigonometical calculations.
+   * equal to 3.14159 that arises in various geometric and trigonometric calculations.
    */
   PI: BigFloat;
 
@@ -1155,9 +1159,9 @@ function leastSignificantBitIndex(n: bigint): number {
 
   return low - 1;
 
-  // returns false if bitpos is too high
-  function test(bitpos: number): boolean {
-    return n % (1n << BigInt(bitpos)) === 0n;
+  // returns false if e is too high
+  function test(e: number): boolean {
+    return n % (1n << BigInt(e)) === 0n;
   }
 }
 
